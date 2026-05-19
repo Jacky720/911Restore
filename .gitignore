@@ -399,3 +399,5 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+game_assets/*.zip
+game_assets/plugins/911Restore.asi
