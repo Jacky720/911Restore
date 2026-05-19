@@ -14,6 +14,11 @@ bool mainThreadFinished = false;
 inline std::string sExeName;
 inline std::filesystem::path sExePath;
 
+DWORD __stdcall DetachThread(void* module)
+{
+    FreeLibraryAndExitThread(static_cast<HMODULE>(module), 0);
+}
+
 DWORD __stdcall Main(void*)
 {
     // Get game name and exe path
@@ -21,15 +26,9 @@ DWORD __stdcall Main(void*)
     GetModuleFileNameW(baseModule, exePath, MAX_PATH);
     sExePath = exePath;
     sExeName = sExePath.filename().string();
-    if (!strcmp(sExeName.c_str(), "launcher.exe"))
-    {
-        bIsLauncher = true;
-    }   
     sExePath = sExePath.remove_filename();
 
-    if (!bIsLauncher)
-        Mod();
-
+    Mod();
     // Signal any threads (e.g., the memset hook) that are waiting for initialization to finish.
     {
         std::lock_guard lock(mainThreadFinishedMutex);
@@ -77,7 +76,24 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     {
         return TRUE;
     }
+
     DisableThreadLibraryCalls(hModule);
+
+    WCHAR exePath[_MAX_PATH] = { 0 };
+    GetModuleFileNameW(baseModule, exePath, MAX_PATH);
+
+    const std::filesystem::path currentExePath = exePath;
+    const std::string currentExeName = currentExePath.filename().string();
+
+    if (_stricmp(currentExeName.c_str(), "METAL GEAR SOLID2.exe") != 0)
+    {
+        if (const HANDLE detachHandle = CreateThread(nullptr, 0, DetachThread, hModule, 0, nullptr))
+        {
+            CloseHandle(detachHandle);
+        }
+
+        return TRUE;
+    }
 
     if (GetModuleHandleA("VCRUNTIME140.dll"))
     {
@@ -91,6 +107,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         // Overwrite the IAT entry with our memset_Hook, so our code intercepts memset calls.
         // We always overwrite unconditionally to ensure our hook is active.
         // This will prevent other mods that also hook memset from unpausing the main thread before our Main() has finished.
+
         Memory::WriteIAT(baseModule, "VCRUNTIME140.dll", "memset", &memset_Hook);
     }
 
@@ -102,9 +119,5 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         CloseHandle(mainHandle);
     }
 
-    // Prevent monitor or system sleep while the game is running.
-    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
-
     return TRUE;
 }
-
